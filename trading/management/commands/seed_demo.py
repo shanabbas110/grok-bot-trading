@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from trading.models import ActivityLog, Agent, AppSettings, BalanceSnapshot, ScannedToken, Trade
+from trading.models import ActivityLog, Agent, AppSettings, BalanceSnapshot, ScannedToken, TokenStatus, Trade
 from trading.services.paper_engine import PaperEngine
 
 
@@ -59,13 +59,23 @@ class Command(BaseCommand):
                 },
             )
 
+        TokenStatus.objects.all().delete()
+        for symbol, state, detail, positive in [
+            ("BRAWL", TokenStatus.State.REJECTED, "REJECTED • BUY", False),
+            ("GROM", TokenStatus.State.REJECTED, "REJECTED • LOCK", False),
+            ("VOLK", TokenStatus.State.CHECKING, "CHECKING DEV", False),
+        ]:
+            TokenStatus.objects.create(symbol=symbol, chain="solana", state=state, detail=detail, is_positive=positive)
+
         ActivityLog.objects.all().delete()
         samples = [
-            ("risk", "LP locked 56d • $BRAWL", "BRAWL"),
+            ("risk", "rug check $BRAWL — LP locked 56d", "BRAWL"),
             ("scan", "1200 new pairs, 4 with LP > $50k", ""),
+            ("scan", "1720 new pairs, 1 with LP > $43k", ""),
             ("big", "SOLD $MIZZ x4.9 +$621.08", "MIZZ"),
             ("exec", "BUY 4.00 SOL $TAFFY @ $0.00087", "TAFFY"),
-            ("warn", "Skipping $GROM: dev wallet 18.2%", "GROM"),
+            ("warn", "$PUMP dev wallet 7% — skipped", "PUMP"),
+            ("scan", "1514 new pairs, 4 with LP > $70k", ""),
         ]
         for tag, msg, sym in samples:
             ActivityLog.objects.create(tag=tag, message=msg, symbol=sym, agent=kesh)

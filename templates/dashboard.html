@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GROK BOT</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/dashboard.css" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=3" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -14,10 +14,10 @@
   <div class="app" id="app">
     <header class="top-bar">
       <div class="brand">
-        <div class="bot-icon" aria-hidden="true"></div>
+        <div class="bot-icon" aria-hidden="true"><span></span><span></span></div>
         <div>
           <h1>GROK BOT</h1>
-          <p class="sub" id="mode-label">TRADING MODE</p>
+          <p class="sub">TRADING MODE</p>
         </div>
       </div>
       <div class="status-col">
@@ -38,38 +38,52 @@
         <div class="value" id="subscription">$0.00</div>
         <div class="hint" id="subscription-hint">paid • next in 0 days</div>
       </div>
-      <div class="glass card">
+      <div class="glass card pnl-card" id="pnl-card">
         <div class="label">Total P&amp;L</div>
         <div class="value positive" id="pnl">+$0.00</div>
         <div class="hint" id="pnl-pct">+0% on starting stack</div>
       </div>
       <div class="glass card win-card">
-        <div class="win-ring-wrap">
-          <canvas id="win-chart" width="88" height="88"></canvas>
-          <div class="win-center" id="win-rate">0%</div>
+        <div class="ring" id="win-ring" style="--pct: 0">
+          <span id="win-rate">0%</span>
         </div>
         <div class="win-stats">
-          <div><span class="positive" id="wins">0 wins</span></div>
-          <div><span class="negative" id="losses">0 losses</span></div>
-          <div class="muted" id="closed">0 closed</div>
-          <div class="muted" id="fees">fees $0.00</div>
+          <div class="label">Win rate</div>
+          <div class="positive" id="wins">0 wins</div>
+          <div class="negative" id="losses">0 losses</div>
+          <div class="hint" id="fees">fees $0.00</div>
         </div>
+        <div class="closed-count" id="closed">0 closed</div>
       </div>
     </section>
 
     <section class="main-grid">
       <div class="glass panel chart-panel">
         <div class="panel-head">
-          <span>Balance History</span>
+          <span class="kicker">Balance History</span>
           <span class="timer" id="session-timer">00:00:00 / 22H</span>
         </div>
-        <canvas id="balance-chart"></canvas>
+        <div class="chart-wrap">
+          <canvas id="balance-chart"></canvas>
+        </div>
       </div>
       <div class="glass panel log-panel">
+        <div class="panel-head">
+          <span class="kicker">Activity Log</span>
+          <span class="resolved" id="resolved-count">0 RESOLVED</span>
+        </div>
         <div class="token-rows" id="token-statuses"></div>
         <div class="log-scroll" id="activity-log"></div>
       </div>
     </section>
+
+    <div class="daily-target">
+      <div class="target-label">Daily target</div>
+      <div class="bar" aria-hidden="true"><div class="bar-fill" id="daily-bar"></div></div>
+      <div class="target-pct" id="daily-pct">15%</div>
+    </div>
+
+    <div class="agents" id="agents-row"></div>
 
     <section class="glass panel tables-panel">
       <div class="tables-grid">
@@ -87,20 +101,11 @@
         </div>
       </div>
     </section>
-
-    <footer class="footer">
-      <div class="daily-target">
-        <div class="target-label">DAILY TARGET</div>
-        <div class="bar"><div class="bar-fill" id="daily-bar"></div></div>
-        <div class="target-pct" id="daily-pct">15%</div>
-      </div>
-      <div class="agents" id="agents-row"></div>
-    </footer>
   </div>
 
   <script>
     window.__INITIAL__ = {{ initial|safe }};
   </script>
-  <script src="/static/js/dashboard.js"></script>
+  <script src="/static/js/dashboard.js?v=3"></script>
 </body>
 </html>
