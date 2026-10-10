@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal
 
+from django.conf import settings as django_settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -18,7 +19,14 @@ from trading.models import (
     TokenStatus,
     Trade,
 )
+from trading.services.health import all_providers
 from trading.services.paper_engine import PaperEngine
+from trading.services.runtime_config import (
+    env_defaults,
+    get_config,
+    get_config_schema,
+    validate_config,
+)
 from trading.services.scanner import MarketScanner
 
 
@@ -35,6 +43,10 @@ def _dashboard_payload():
     pnl = settings.cash_balance - settings.starting_balance
     pnl_pct = (float(pnl) / float(settings.starting_balance) * 100) if settings.starting_balance else 0
     wr = _win_rate_stats()
+    cfg = get_config()
+    target_closed = int(cfg.get("win_rate_target_closed", 60))
+    target_wins = int(cfg.get("win_rate_target_wins", 50))
+    target_rate = round((target_wins / target_closed) * 100) if target_closed else 83
 
     open_positions = list(
         Position.objects.filter(status=Position.Status.OPEN).values(
@@ -74,6 +86,14 @@ def _dashboard_payload():
         "total_fees": float(settings.total_fees),
         "task_count": settings.task_count,
         "win_rate": wr,
+        "win_rate_target": {
+            "wins": target_wins,
+            "closed": target_closed,
+            "rate": target_rate,
+        },
+        "net_profit_after_fees": float(pnl),
+        "decider_mode": cfg.get("decider_mode", "jev+grok"),
+        "config": cfg,
         "daily_target_pct": daily_target,
         "daily_progress_pct": round(daily_progress, 1),
         "session_timer": f"{hours:02d}:{mins:02d}:{secs:02d}",
@@ -197,3 +217,50 @@ def api_paper_add_funds(request):
 def api_scan_now(request):
     MarketScanner().scan()
     return JsonResponse({"ok": True})
+
+
+@require_GET
+def api_health(request):
+    return JsonResponse({"providers": all_providers()})
+
+
+@require_GET
+def api_settings(request):
+    schema = get_config_schema()
+    public_schema = {k: {"type": v["type"], "env": v["env"]} for k, v in schema.items()}
+    return JsonResponse(
+        {
+            "config": get_config(),
+            "env_defaults": env_defaults(),
+            "schema": public_schema,
+        }
+    )
+
+
+@csrf_exempt
+@require_POST
+def api_settings_update(request):
+    body = json.loads(request.body or "{}")
+    updates = body.get("config") if isinstance(body.get("config"), dict) else body
+    if not isinstance(updates, dict):
+        return JsonResponse({"ok": False, "errors": ["Invalid payload"]}, status=400)
+
+    row = AppSettings.get()
+    merged = {**get_config(), **updates}
+    errors = validate_config(merged)
+    if errors:
+        return JsonResponse({"ok": False, "errors": errors}, status=400)
+
+    stored = dict(row.config or {})
+    for key, val in updates.items():
+        if key in get_config_schema():
+            stored[key] = val
+    row.config = stored
+    if "daily_target_pct" in updates:
+        row.daily_target_pct = Decimal(str(updates["daily_target_pct"]))
+    if "paper_starting_balance" in updates:
+        row.starting_balance = Decimal(str(updates["paper_starting_balance"]))
+        if body.get("reset_balance"):
+            row.cash_balance = row.starting_balance
+    row.save()
+    return JsonResponse({"ok": True, "config": get_config()})

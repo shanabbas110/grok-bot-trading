@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from trading.models import ActivityLog, Agent, AppSettings, BalanceSnapshot, ScannedToken, TokenStatus, Trade
+from trading.services.agent_presets import apply_preset
 from trading.services.paper_engine import PaperEngine
 
 
@@ -24,15 +25,16 @@ class Command(BaseCommand):
         settings.save()
 
         agents = [
-            ("ODEN", "#3b82f6"),
-            ("VIRA", "#22d3ee"),
-            ("KESH", "#f97316"),
-            ("NOLU", "#22c55e"),
-            ("TAMB", "#ec4899"),
-            ("RYZO", "#a855f7"),
+            ("ODEN", "#3b82f6", Agent.StrategyPreset.CONSERVATIVE),
+            ("VIRA", "#22d3ee", Agent.StrategyPreset.BALANCED),
+            ("KESH", "#f97316", Agent.StrategyPreset.AGGRESSIVE),
+            ("NOLU", "#22c55e", Agent.StrategyPreset.CONSERVATIVE),
+            ("TAMB", "#ec4899", Agent.StrategyPreset.BALANCED),
+            ("RYZO", "#a855f7", Agent.StrategyPreset.AGGRESSIVE),
         ]
-        for name, color in agents:
-            Agent.objects.update_or_create(name=name, defaults={"color": color, "status": Agent.Status.STOPPED})
+        for name, color, preset in agents:
+            agent, _ = Agent.objects.update_or_create(name=name, defaults={"color": color, "status": Agent.Status.STOPPED})
+            apply_preset(agent, preset)
 
         kesh = Agent.objects.get(name="KESH")
         kesh.status = Agent.Status.RUNNING

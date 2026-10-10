@@ -11,4 +11,7 @@ urlpatterns = [
     path("api/paper/reset/", views.api_paper_reset, name="api_paper_reset"),
     path("api/paper/add-funds/", views.api_paper_add_funds, name="api_paper_add_funds"),
     path("api/scan/", views.api_scan_now, name="api_scan_now"),
+    path("api/health/", views.api_health, name="api_health"),
+    path("api/settings/", views.api_settings, name="api_settings"),
+    path("api/settings/update/", views.api_settings_update, name="api_settings_update"),
 ]

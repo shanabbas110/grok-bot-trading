@@ -17,7 +17,7 @@
         <div class="bot-icon" aria-hidden="true"><span></span><span></span></div>
         <div>
           <h1>GROK BOT</h1>
-          <p class="sub">TRADING MODE</p>
+          <p class="sub" id="mode-label">TRADING MODE</p>
         </div>
       </div>
       <div class="status-col">
@@ -42,6 +42,7 @@
         <div class="label">Total P&amp;L</div>
         <div class="value positive" id="pnl">+$0.00</div>
         <div class="hint" id="pnl-pct">+0% on starting stack</div>
+        <div class="hint" id="net-after-fees">net after fees $0.00</div>
       </div>
       <div class="glass card win-card">
         <div class="ring" id="win-ring" style="--pct: 0">
@@ -52,6 +53,7 @@
           <div class="positive" id="wins">0 wins</div>
           <div class="negative" id="losses">0 losses</div>
           <div class="hint" id="fees">fees $0.00</div>
+          <div class="hint" id="win-target">target 50/60 (83%)</div>
         </div>
         <div class="closed-count" id="closed">0 closed</div>
       </div>
@@ -84,6 +86,21 @@
     </div>
 
     <div class="agents" id="agents-row"></div>
+
+    <section class="glass panel health-panel">
+      <div class="panel-head"><span class="kicker">Provider health</span><span class="resolved" id="health-updated">—</span></div>
+      <div class="health-grid" id="health-grid"></div>
+    </section>
+
+    <section class="glass panel settings-panel">
+      <div class="panel-head">
+        <span class="kicker">Settings</span>
+        <button type="button" class="btn-save" id="settings-save">Save</button>
+      </div>
+      <p class="hint settings-hint">Values override <code>.env</code> defaults (stored in DB). Restart Celery beat to apply scan interval changes.</p>
+      <div class="settings-grid" id="settings-form"></div>
+      <div class="settings-errors" id="settings-errors"></div>
+    </section>
 
     <section class="glass panel tables-panel">
       <div class="tables-grid">

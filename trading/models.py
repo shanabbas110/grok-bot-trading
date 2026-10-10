@@ -18,6 +18,7 @@ class AppSettings(models.Model):
     task_count = models.PositiveIntegerField(default=0)
     session_started_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    config = models.JSONField(default=dict, blank=True)
 
     class Meta:
         verbose_name_plural = "App settings"
@@ -34,9 +35,18 @@ class Agent(models.Model):
         RUNNING = "running", "Running"
         PAUSED = "paused", "Paused"
 
+    class StrategyPreset(models.TextChoices):
+        CONSERVATIVE = "conservative_scalper", "Conservative scalper"
+        BALANCED = "balanced_scalper", "Balanced scalper"
+        AGGRESSIVE = "aggressive_scalper", "Aggressive scalper"
+        CUSTOM = "custom", "Custom"
+
     name = models.CharField(max_length=32, unique=True)
     color = models.CharField(max_length=16, default="#3b82f6")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.STOPPED)
+    strategy_preset = models.CharField(
+        max_length=32, choices=StrategyPreset.choices, default=StrategyPreset.BALANCED
+    )
     strategy_notes = models.TextField(blank=True, default="")
     max_position_pct = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("10"))
     min_confidence = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal("0.60"))
@@ -194,6 +204,8 @@ class ActivityLog(models.Model):
         SCAN = "scan", "Scan"
         EXEC = "exec", "Exec"
         BIG = "big", "Big"
+        JEV = "jev", "Jev"
+        GROK = "grok", "Grok"
 
     tag = models.CharField(max_length=16, choices=Level.choices, default=Level.INFO)
     message = models.TextField()

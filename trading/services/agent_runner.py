@@ -4,49 +4,98 @@ from django.utils import timezone
 
 from trading.models import Agent, AppSettings, Order, Position, ScannedToken, TokenStatus
 from trading.services.activity import log_activity
-from trading.services.grok_decider import GrokDecider
+from trading.services.agent_presets import PRESETS
+from trading.services.decision_pipeline import DecisionPipeline
+from trading.services.market_signals import indicators_summary, safety_from_token
 from trading.services.paper_engine import PaperEngine
 from trading.services.risk_guard import RiskGuard, TradeIntent
 
 
 class AgentRunner:
     def __init__(self):
-        self.decider = GrokDecider()
+        self.pipeline = DecisionPipeline()
         self.paper = PaperEngine()
+
+    def _portfolio(self, settings, agent: Agent) -> dict:
+        return {
+            "cash": float(settings.cash_balance),
+            "starting": float(settings.starting_balance),
+            "open_positions": Position.objects.filter(status=Position.Status.OPEN, agent=agent).count(),
+        }
+
+    def run_exit_checks(self, agent: Agent):
+        settings = AppSettings.get()
+        if settings.kill_switch:
+            return
+        portfolio = self._portfolio(settings, agent)
+        for position in Position.objects.filter(status=Position.Status.OPEN, agent=agent):
+            token = (
+                ScannedToken.objects.filter(symbol__iexact=position.symbol)
+                .order_by("-last_seen_at")
+                .first()
+            )
+            mark = float(token.price_usd) if token and token.price_usd else float(position.entry_price)
+            pos_dict = {
+                "symbol": position.symbol,
+                "chain": position.chain,
+                "entry_price": float(position.entry_price),
+                "cost_basis_usd": float(position.cost_basis_usd),
+            }
+            if self.pipeline.evaluate_exit(agent, pos_dict, mark, portfolio):
+                self.paper.close_position(position, "jev_exit", Decimal(str(mark)))
 
     def run_agent(self, agent: Agent):
         settings = AppSettings.get()
         if settings.kill_switch:
             return
 
-        candidates = list(
-            ScannedToken.objects.order_by("-volume_24h", "-liquidity_usd")[:12].values(
-                "symbol",
-                "chain",
-                "token_address",
-                "price_usd",
-                "liquidity_usd",
-                "volume_24h",
-                "buy_sell_ratio",
+        self.run_exit_checks(agent)
+
+        token_rows = ScannedToken.objects.order_by("-volume_24h", "-liquidity_usd")[:12]
+        candidates = []
+        for t in token_rows:
+            c = {
+                "symbol": t.symbol,
+                "chain": t.chain,
+                "token_address": t.token_address,
+                "price_usd": float(t.price_usd or 0),
+                "liquidity_usd": float(t.liquidity_usd or 0),
+                "volume_24h": float(t.volume_24h or 0),
+                "buy_sell_ratio": float(t.buy_sell_ratio or 1),
+                "pair_age_hours": float(t.pair_age_hours) if t.pair_age_hours else None,
+                "fdv_usd": float(t.fdv_usd) if t.fdv_usd else None,
+                "rug_score": float(t.rug_score) if t.rug_score else None,
+                "_token": t,
+            }
+            candidates.append(c)
+
+        portfolio = self._portfolio(settings, agent)
+
+        preset = PRESETS.get(agent.strategy_preset, {})
+        agent._jev_threshold_offset = float(preset.get("jev_buy_offset", 0))
+
+        decision = None
+        for candidate in candidates:
+            safety = safety_from_token(candidate["_token"])
+            if safety.get("honeypot"):
+                continue
+            log_activity(
+                "scan",
+                f"${candidate['symbol']} signals: {indicators_summary(candidate, safety)}",
+                symbol=candidate["symbol"],
+                agent=agent,
             )
-        )
-        for c in candidates:
-            c["price_usd"] = float(c["price_usd"] or 0)
+            decision = self.pipeline.evaluate_entry(agent, candidate, portfolio, safety)
+            if decision and decision.get("action") == "buy":
+                break
 
-        portfolio = {
-            "cash": float(settings.cash_balance),
-            "starting": float(settings.starting_balance),
-            "open_positions": Position.objects.filter(status=Position.Status.OPEN, agent=agent).count(),
-        }
-
-        decision = self.decider.decide(agent.name, candidates, portfolio)
         settings.task_count += 1
         settings.save(update_fields=["task_count", "updated_at"])
 
         agent.last_tick_at = timezone.now()
         agent.save(update_fields=["last_tick_at"])
 
-        if decision.get("action", "hold") == "hold":
+        if not decision or decision.get("action", "hold") != "buy":
             return
 
         symbol = decision.get("symbol", "").upper()
@@ -54,7 +103,7 @@ class AgentRunner:
         price = Decimal(str(token.price_usd if token and token.price_usd else decision.get("price", 0.001)))
 
         intent = TradeIntent(
-            action=decision["action"],
+            action="buy",
             symbol=symbol,
             size_pct=float(decision.get("size_pct", 0)),
             stop_loss=float(decision.get("stop_loss")) if decision.get("stop_loss") is not None else None,
@@ -68,12 +117,12 @@ class AgentRunner:
         guard = RiskGuard(agent=agent)
         risk = guard.evaluate(intent)
         if not risk.allowed:
-            order = Order.objects.create(
+            Order.objects.create(
                 agent=agent,
                 symbol=symbol or "?",
                 chain=intent.chain,
                 token_address=intent.token_address,
-                side=Order.Side.BUY if intent.action == "buy" else Order.Side.SELL,
+                side=Order.Side.BUY,
                 status=Order.Status.REJECTED,
                 size_pct=Decimal(str(intent.size_pct)),
                 confidence=Decimal(str(intent.confidence)),
@@ -84,26 +133,25 @@ class AgentRunner:
                 symbol=symbol or "?",
                 chain=intent.chain,
                 state=TokenStatus.State.REJECTED,
-                detail=f"REJECTED • {intent.action.upper()}",
+                detail=f"REJECTED • BUY",
                 is_positive=False,
             )
             log_activity("risk", f"Rejected {symbol}: {risk.reason}", symbol=symbol, agent=agent)
             return
 
-        if intent.action == "buy":
-            order = Order.objects.create(
-                agent=agent,
-                symbol=symbol,
-                chain=intent.chain,
-                token_address=intent.token_address,
-                side=Order.Side.BUY,
-                size_pct=Decimal(str(intent.size_pct)),
-                stop_loss_pct=Decimal(str(intent.stop_loss)),
-                take_profit_pct=Decimal(str(intent.take_profit)),
-                confidence=Decimal(str(intent.confidence)),
-                reason=decision.get("reason", ""),
-            )
-            self.paper.process_buy_order(order)
+        order = Order.objects.create(
+            agent=agent,
+            symbol=symbol,
+            chain=intent.chain,
+            token_address=intent.token_address,
+            side=Order.Side.BUY,
+            size_pct=Decimal(str(intent.size_pct)),
+            stop_loss_pct=Decimal(str(intent.stop_loss)),
+            take_profit_pct=Decimal(str(intent.take_profit)),
+            confidence=Decimal(str(intent.confidence)),
+            reason=decision.get("reason", ""),
+        )
+        self.paper.process_buy_order(order)
 
     def run_all_running(self):
         for agent in Agent.objects.filter(status=Agent.Status.RUNNING):

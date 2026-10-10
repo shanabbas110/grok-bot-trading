@@ -148,5 +148,35 @@ RISK_MAX_POSITION_PCT = float(os.environ.get("RISK_MAX_POSITION_PCT", "15"))
 RISK_MAX_OPEN_POSITIONS = int(os.environ.get("RISK_MAX_OPEN_POSITIONS", "5"))
 RISK_DAILY_LOSS_KILL_PCT = float(os.environ.get("RISK_DAILY_LOSS_KILL_PCT", "10"))
 RISK_MAX_TRADES_PER_HOUR = int(os.environ.get("RISK_MAX_TRADES_PER_HOUR", "20"))
-RISK_MIN_CONFIDENCE = float(os.environ.get("RISK_MIN_CONFIDENCE", "0.55"))
+RISK_MIN_CONFIDENCE = float(os.environ.get("RISK_MIN_CONFIDENCE", "0.62"))
 RISK_MANDATORY_SL_TP = os.environ.get("RISK_MANDATORY_SL_TP", "1") == "1"
+
+# Jev / TypeSafe decision gate
+TYPESAFE_API_KEY = os.environ.get("TYPESAFE_API_KEY", "")
+JEV_MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
+JEV_TIMEOUT_SECONDS = float(os.environ.get("JEV_TIMEOUT_SECONDS", "30"))
+JEV_BUY_CONFIDENCE_THRESHOLD = float(os.environ.get("JEV_BUY_CONFIDENCE_THRESHOLD", "0.72"))
+JEV_EXIT_CONFIDENCE_THRESHOLD = float(os.environ.get("JEV_EXIT_CONFIDENCE_THRESHOLD", "0.6"))
+JEV_EXIT_NOUL_THRESHOLD = float(os.environ.get("JEV_EXIT_NOUL_THRESHOLD", "0.65"))
+
+# jev+grok | grok-only | jev-only | mock
+DECIDER_MODE = os.environ.get("DECIDER_MODE", "jev+grok")
+GROK_MIN_CONFIDENCE = float(os.environ.get("GROK_MIN_CONFIDENCE", "0.65"))
+
+DEFAULT_STOP_LOSS_PCT = float(os.environ.get("DEFAULT_STOP_LOSS_PCT", "3.0"))
+DEFAULT_TAKE_PROFIT_PCT = float(os.environ.get("DEFAULT_TAKE_PROFIT_PCT", "4.5"))
+DEFAULT_POSITION_SIZE_PCT = float(os.environ.get("DEFAULT_POSITION_SIZE_PCT", "6.0"))
+MAX_TAKE_PROFIT_PCT = float(os.environ.get("MAX_TAKE_PROFIT_PCT", "6.0"))
+MAX_STOP_LOSS_PCT = float(os.environ.get("MAX_STOP_LOSS_PCT", "4.0"))
+PAPER_POSITION_TIMEOUT_HOURS = float(os.environ.get("PAPER_POSITION_TIMEOUT_HOURS", "1.5"))
+
+WIN_RATE_TARGET_WINS = int(os.environ.get("WIN_RATE_TARGET_WINS", "50"))
+WIN_RATE_TARGET_CLOSED = int(os.environ.get("WIN_RATE_TARGET_CLOSED", "60"))
+
+TYPESAFE_API_KEY = os.environ.get("TYPESAFE_API_KEY", "")
+JEV_TIMEOUT_SECONDS = float(os.environ.get("JEV_TIMEOUT_SECONDS", "30"))
+SCAN_INTERVAL_SECONDS = int(os.environ.get("SCAN_INTERVAL_SECONDS", "120"))
+DAILY_TARGET_PCT = float(os.environ.get("DAILY_TARGET_PCT", "15"))
+CHAINS_TO_SCAN = os.environ.get("CHAINS_TO_SCAN", "solana,ethereum,base,bsc")
+RUG_CHECK_ENABLED = os.environ.get("RUG_CHECK_ENABLED", "1") == "1"
+RUG_DEV_WALLET_PCT_MAX = float(os.environ.get("RUG_DEV_WALLET_PCT_MAX", "0.12"))

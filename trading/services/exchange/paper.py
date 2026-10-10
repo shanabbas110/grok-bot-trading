@@ -1,8 +1,7 @@
 from decimal import Decimal
 
-from django.conf import settings
-
 from trading.models import AppSettings, ScannedToken
+from trading.services.runtime_config import get_config
 
 from .base import ExchangeAdapter
 
@@ -31,8 +30,9 @@ class PaperExchangeAdapter(ExchangeAdapter):
         token_address: str = "",
     ) -> dict:
         settings_obj = AppSettings.get()
-        fee_bps = Decimal(settings.PAPER_FEE_BPS) / Decimal("10000")
-        slip_bps = Decimal(settings.PAPER_SLIPPAGE_BPS) / Decimal("10000")
+        cfg = get_config()
+        fee_bps = Decimal(int(cfg.get("paper_fee_bps", 30))) / Decimal("10000")
+        slip_bps = Decimal(int(cfg.get("paper_slippage_bps", 50))) / Decimal("10000")
 
         slip_mult = Decimal("1") + slip_bps if side.lower() == "buy" else Decimal("1") - slip_bps
         fill_price = price_usd * slip_mult

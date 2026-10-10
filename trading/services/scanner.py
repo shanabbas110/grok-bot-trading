@@ -2,11 +2,10 @@ import logging
 from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
 
-import requests
-from django.conf import settings
-
 from trading.models import ScannedToken, TokenStatus
 from trading.services.activity import log_activity
+from trading.services.http_client import HttpClient
+from trading.services.runtime_config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +15,11 @@ GECKO_BASE = "https://api.geckoterminal.com/api/v2"
 
 class MarketScanner:
     def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update({"Accept": "application/json", "User-Agent": "GrokBot/1.0"})
+        self.http = HttpClient()
 
     def scan(self) -> list[ScannedToken]:
+        cfg = get_config()
+        allowed_chains = {c.lower() for c in (cfg.get("chains_to_scan") or [])}
         candidates: list[dict] = []
         candidates.extend(self._dex_token_boosts())
         candidates.extend(self._dex_token_profiles())
@@ -33,6 +33,8 @@ class MarketScanner:
             if not key[0] or key in seen:
                 continue
             seen.add(key)
+            if allowed_chains and (c.get("chain") or "").lower() not in allowed_chains:
+                continue
             if not self._passes_filters(c):
                 self._upsert_token_status(c, rejected=True, detail=c.get("reject_reason", "FILTER"))
                 continue
@@ -55,30 +57,35 @@ class MarketScanner:
         return saved
 
     def _passes_filters(self, c: dict) -> bool:
+        cfg = get_config()
         liq = float(c.get("liquidity_usd") or 0)
         vol = float(c.get("volume_24h") or 0)
         ratio = float(c.get("buy_sell_ratio") or 0)
         age = c.get("pair_age_hours")
         fdv = c.get("fdv_usd")
-        if liq < settings.SCAN_MIN_LIQUIDITY_USD:
+        if liq < float(cfg.get("scan_min_liquidity_usd", 50000)):
             c["reject_reason"] = "LOW LP"
             return False
-        if vol < settings.SCAN_MIN_VOLUME_24H:
+        if vol < float(cfg.get("scan_min_volume_24h", 10000)):
             c["reject_reason"] = "LOW VOL"
             return False
-        if ratio < settings.SCAN_MIN_BUY_SELL_RATIO:
+        if ratio < float(cfg.get("scan_min_buy_sell_ratio", 1.1)):
             c["reject_reason"] = "BUY/SELL"
             return False
-        if age is not None and float(age) > settings.SCAN_MAX_PAIR_AGE_HOURS:
+        if age is not None and float(age) > float(cfg.get("scan_max_pair_age_hours", 72)):
             c["reject_reason"] = "AGE"
             return False
         if fdv and liq > 0:
-            if float(fdv) / liq > settings.SCAN_MAX_FDV_LIQUIDITY_RATIO:
+            if float(fdv) / liq > float(cfg.get("scan_max_fdv_liquidity_ratio", 50)):
                 c["reject_reason"] = "FDV/LP"
                 return False
         return True
 
     def _rug_check(self, c: dict) -> dict:
+        cfg = get_config()
+        if not cfg.get("rug_check_enabled", True):
+            return {"reject": False, "detail": "", "notes": {}, "score": 80.0}
+        max_dev = float(cfg.get("rug_dev_wallet_pct_max", 0.12))
         chain = (c.get("chain") or "").lower()
         addr = c.get("token_address") or ""
         notes = {}
@@ -88,7 +95,7 @@ class MarketScanner:
 
         if chain == "solana" and addr:
             try:
-                r = self.session.get(f"https://api.rugcheck.xyz/v1/tokens/{addr}/report/summary", timeout=8)
+                r = self.http.request("GET", f"https://api.rugcheck.xyz/v1/tokens/{addr}/report/summary", timeout=8)
                 if r.ok:
                     data = r.json()
                     risk = data.get("riskLevel") or data.get("score")
@@ -99,13 +106,14 @@ class MarketScanner:
                     if isinstance(risk, (int, float)) and risk > 70:
                         reject = True
                         detail = "RUGCHECK SCORE"
-            except requests.RequestException as e:
+            except Exception as e:
                 logger.debug("rugcheck error: %s", e)
 
         if addr and chain in ("ethereum", "bsc", "base", "solana"):
             chain_id = {"ethereum": "1", "bsc": "56", "base": "8453", "solana": "solana"}.get(chain, "1")
             try:
-                r = self.session.get(
+                r = self.http.request(
+                    "GET",
                     f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}",
                     params={"contract_addresses": addr},
                     timeout=8,
@@ -119,11 +127,11 @@ class MarketScanner:
                             reject = True
                             detail = "HONEYPOT"
                         dev_pct = payload.get("owner_percent") or payload.get("creator_percent")
-                        if dev_pct and float(dev_pct) > 0.15:
+                        if dev_pct and float(dev_pct) > max_dev:
                             score -= 20
                             detail = detail or "DEV % HIGH"
                             log_activity("warn", f"Skipping {c.get('symbol')}: dev wallet {float(dev_pct)*100:.1f}%", symbol=c.get("symbol", ""))
-            except requests.RequestException as e:
+            except Exception as e:
                 logger.debug("goplus error: %s", e)
 
         if notes.get("rugcheck"):
@@ -202,94 +210,94 @@ class MarketScanner:
     def _dex_token_boosts(self) -> list[dict]:
         out = []
         try:
-            r = self.session.get(f"{DEX_BASE}/token-boosts/latest/v1", timeout=10)
-            if r.ok:
-                for item in r.json() if isinstance(r.json(), list) else []:
-                    chain = item.get("chainId", "")
-                    addr = item.get("tokenAddress", "")
-                    if not addr:
-                        continue
-                    pairs = self._fetch_dex_pair(chain, addr)
-                    out.extend(pairs)
-        except requests.RequestException as e:
+            data = self.http.get_json(f"{DEX_BASE}/token-boosts/latest/v1")
+            for item in data if isinstance(data, list) else []:
+                chain = item.get("chainId", "")
+                addr = item.get("tokenAddress", "")
+                if not addr:
+                    continue
+                pairs = self._fetch_dex_pair(chain, addr)
+                out.extend(pairs)
+        except Exception as e:
             logger.warning("dex boosts: %s", e)
         return out
 
     def _dex_token_profiles(self) -> list[dict]:
         out = []
         try:
-            r = self.session.get(f"{DEX_BASE}/token-profiles/latest/v1", timeout=10)
-            if r.ok:
-                for item in r.json() if isinstance(r.json(), list) else []:
-                    chain = item.get("chainId", "")
-                    addr = item.get("tokenAddress", "")
-                    if addr:
-                        out.extend(self._fetch_dex_pair(chain, addr))
-        except requests.RequestException as e:
+            data = self.http.get_json(f"{DEX_BASE}/token-profiles/latest/v1")
+            for item in data if isinstance(data, list) else []:
+                chain = item.get("chainId", "")
+                addr = item.get("tokenAddress", "")
+                if addr:
+                    out.extend(self._fetch_dex_pair(chain, addr))
+        except Exception as e:
             logger.warning("dex profiles: %s", e)
         return out
 
     def _fetch_dex_pair(self, chain: str, token_address: str) -> list[dict]:
         out = []
         try:
-            r = self.session.get(f"{DEX_BASE}/latest/dex/tokens/{token_address}", timeout=10)
-            if r.ok:
-                pairs = r.json().get("pairs") or []
-                for p in pairs[:3]:
-                    if chain and p.get("chainId") != chain:
-                        continue
-                    c = self._pair_to_candidate(p, "dexscreener")
-                    if c:
-                        out.append(c)
-        except requests.RequestException:
+            payload = self.http.get_json(f"{DEX_BASE}/latest/dex/tokens/{token_address}")
+            pairs = payload.get("pairs") or []
+            for p in pairs[:3]:
+                if chain and p.get("chainId") != chain:
+                    continue
+                c = self._pair_to_candidate(p, "dexscreener")
+                if c:
+                    out.append(c)
+        except Exception:
             pass
         return out
 
     def _dex_search_solana(self) -> list[dict]:
         out = []
         try:
-            r = self.session.get(f"{DEX_BASE}/latest/dex/search", params={"q": "SOL"}, timeout=10)
-            if r.ok:
-                for p in (r.json().get("pairs") or [])[:15]:
-                    c = self._pair_to_candidate(p, "dexscreener")
-                    if c:
-                        out.append(c)
-        except requests.RequestException as e:
+            payload = self.http.get_json(f"{DEX_BASE}/latest/dex/search", params={"q": "SOL"})
+            for p in (payload.get("pairs") or [])[:15]:
+                c = self._pair_to_candidate(p, "dexscreener")
+                if c:
+                    out.append(c)
+        except Exception as e:
             logger.warning("dex search: %s", e)
         return out
 
     def _gecko_trending(self) -> list[dict]:
         out = []
+        cfg = get_config()
+        chains = cfg.get("chains_to_scan") or ["solana"]
         try:
-            r = self.session.get(f"{GECKO_BASE}/networks/solana/trending_pools", timeout=10)
-            if not r.ok:
-                return out
-            for item in (r.json().get("data") or [])[:20]:
-                attrs = item.get("attributes") or {}
-                name = attrs.get("name", "")
-                symbol = name.split("/")[0].strip() if "/" in name else name[:12]
-                liq = float(attrs.get("reserve_in_usd") or 0)
-                vol = float((attrs.get("volume_usd") or {}).get("h24") or 0)
-                price = float(attrs.get("base_token_price_usd") or 0)
-                rel = (item.get("relationships") or {}).get("base_token", {}).get("data", {})
-                token_id = rel.get("id", "")
-                token_address = token_id.split("_")[-1] if "_" in token_id else ""
-                out.append(
-                    {
-                        "symbol": symbol or "UNK",
-                        "name": name,
-                        "chain": "solana",
-                        "token_address": token_address,
-                        "pair_address": attrs.get("address", ""),
-                        "price_usd": price,
-                        "liquidity_usd": liq,
-                        "volume_24h": vol,
-                        "buy_sell_ratio": 1.2,
-                        "pair_age_hours": None,
-                        "fdv_usd": attrs.get("fdv_usd"),
-                        "source": "geckoterminal",
-                    }
-                )
-        except requests.RequestException as e:
+            for chain in chains:
+                network = chain if chain != "ethereum" else "eth"
+                if network not in ("solana", "eth", "base", "bsc"):
+                    continue
+                payload = self.http.get_json(f"{GECKO_BASE}/networks/{network}/trending_pools")
+                for item in (payload.get("data") or [])[:12]:
+                    attrs = item.get("attributes") or {}
+                    name = attrs.get("name", "")
+                    symbol = name.split("/")[0].strip() if "/" in name else name[:12]
+                    liq = float(attrs.get("reserve_in_usd") or 0)
+                    vol = float((attrs.get("volume_usd") or {}).get("h24") or 0)
+                    price = float(attrs.get("base_token_price_usd") or 0)
+                    rel = (item.get("relationships") or {}).get("base_token", {}).get("data", {})
+                    token_id = rel.get("id", "")
+                    token_address = token_id.split("_")[-1] if "_" in token_id else ""
+                    out.append(
+                        {
+                            "symbol": symbol or "UNK",
+                            "name": name,
+                            "chain": chain,
+                            "token_address": token_address,
+                            "pair_address": attrs.get("address", ""),
+                            "price_usd": price,
+                            "liquidity_usd": liq,
+                            "volume_24h": vol,
+                            "buy_sell_ratio": 1.2,
+                            "pair_age_hours": None,
+                            "fdv_usd": attrs.get("fdv_usd"),
+                            "source": "geckoterminal",
+                        }
+                    )
+        except Exception as e:
             logger.warning("gecko trending: %s", e)
         return out

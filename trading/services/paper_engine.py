@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
+from django.conf import settings as django_settings
 from django.utils import timezone
 
 from trading.models import AppSettings, BalanceSnapshot, Execution, Order, Position, Trade
@@ -9,8 +10,6 @@ from trading.services.exchange.paper import PaperExchangeAdapter
 
 
 class PaperEngine:
-    POSITION_TIMEOUT_HOURS = 4
-
     def __init__(self):
         self.exchange = PaperExchangeAdapter()
 
@@ -63,7 +62,8 @@ class PaperEngine:
             cost_basis_usd=notional,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
-            timeout_at=timezone.now() + timedelta(hours=self.POSITION_TIMEOUT_HOURS),
+            timeout_at=timezone.now()
+            + timedelta(hours=float(getattr(django_settings, "PAPER_POSITION_TIMEOUT_HOURS", 1.5))),
         )
 
         execution = Execution.objects.create(

@@ -38,14 +38,20 @@
     pnlEl.className = "value " + (data.pnl >= 0 ? "positive" : "negative");
     document.getElementById("pnl-card").classList.toggle("negative-pnl", data.pnl < 0);
     document.getElementById("pnl-pct").textContent = `${data.pnl_pct >= 0 ? "+" : ""}${data.pnl_pct}% on starting stack`;
+    const net = data.net_profit_after_fees != null ? data.net_profit_after_fees : data.pnl;
+    document.getElementById("net-after-fees").textContent = `net after fees ${fmt(net)}`;
 
     document.getElementById("task-count").textContent = Number(data.task_count || 0).toLocaleString();
     document.getElementById("fees").textContent = `fees ${fmt(data.total_fees)}`;
     document.getElementById("wins").textContent = `${data.win_rate.wins} wins`;
     document.getElementById("losses").textContent = `${data.win_rate.losses} losses`;
     document.getElementById("closed").textContent = `${data.win_rate.closed} closed`;
-    document.getElementById("win-rate").textContent = `${data.win_rate.rate}%`;
-    document.getElementById("win-ring").style.setProperty("--pct", data.win_rate.rate || 0);
+    const tgt = data.win_rate_target || { wins: 50, closed: 60, rate: 83 };
+    const actual = data.win_rate.rate || 0;
+    document.getElementById("win-rate").textContent = `${actual}%`;
+    document.getElementById("win-ring").style.setProperty("--pct", actual);
+    document.getElementById("win-target").textContent =
+      `target ${tgt.wins}/${tgt.closed} (${tgt.rate}%) • actual ${actual}%`;
     document.getElementById("session-timer").textContent = `${data.session_timer} / 22H`;
     document.getElementById("daily-pct").textContent = `${data.daily_target_pct}%`;
     document.getElementById("daily-bar").style.width = `${data.daily_progress_pct}%`;
@@ -62,6 +68,11 @@
       pill.classList.remove("off");
       liveText.textContent = data.paper_mode ? "PAPER" : "LIVE";
       killBtn.classList.remove("is-on");
+    }
+    const decider = (data.decider_mode || "jev+grok").toUpperCase();
+    const modeLabel = document.getElementById("mode-label");
+    if (modeLabel) {
+      modeLabel.textContent = data.paper_mode ? `PAPER • ${decider}` : `LIVE • ${decider}`;
     }
 
     const statuses = (data.token_statuses || []).slice(0, 4).reverse();
@@ -230,6 +241,84 @@
     poll();
   });
 
+  const SETTING_FIELDS = [
+    "decider_mode", "jev_model", "xai_model", "jev_buy_confidence_threshold", "grok_min_confidence",
+    "scan_interval_seconds", "agent_tick_seconds", "scan_min_liquidity_usd", "scan_min_volume_24h",
+    "scan_min_buy_sell_ratio", "scan_max_pair_age_hours", "chains_to_scan",
+    "default_position_size_pct", "default_stop_loss_pct", "default_take_profit_pct",
+    "risk_max_open_positions", "risk_max_trades_per_hour", "risk_daily_loss_kill_pct",
+    "paper_fee_bps", "paper_slippage_bps", "daily_target_pct", "paper_starting_balance",
+  ];
+
+  function renderSettingsForm(config) {
+    const form = document.getElementById("settings-form");
+    if (!form) return;
+    form.innerHTML = SETTING_FIELDS.map((key) => {
+      const val = config[key];
+      const display = Array.isArray(val) ? val.join(",") : (val ?? "");
+      if (key === "decider_mode") {
+        const opts = ["jev+grok", "grok-only", "jev-only", "mock"]
+          .map((o) => `<option value="${o}" ${display === o ? "selected" : ""}>${o}</option>`).join("");
+        return `<label>${key}<select data-key="${key}">${opts}</select></label>`;
+      }
+      return `<label>${key}<input data-key="${key}" value="${display}" /></label>`;
+    }).join("");
+  }
+
+  async function loadSettings() {
+    const res = await fetch("/api/settings/");
+    const data = await res.json();
+    renderSettingsForm(data.config || {});
+  }
+
+  async function saveSettings() {
+    const form = document.getElementById("settings-form");
+    const errorsEl = document.getElementById("settings-errors");
+    const payload = {};
+    form.querySelectorAll("[data-key]").forEach((el) => {
+      const key = el.dataset.key;
+      let val = el.value;
+      if (key === "chains_to_scan") val = val.split(",").map((s) => s.trim()).filter(Boolean);
+      else if (el.type !== "select-one" && val !== "" && !Number.isNaN(Number(val)) && key !== "decider_mode" && key !== "jev_model" && key !== "xai_model") {
+        val = val.includes(".") ? parseFloat(val) : parseInt(val, 10);
+      }
+      payload[key] = val;
+    });
+    const res = await fetch("/api/settings/update/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config: payload }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      errorsEl.textContent = (data.errors || ["Save failed"]).join("; ");
+      return;
+    }
+    errorsEl.textContent = "";
+    poll();
+  }
+
+  async function pollHealth() {
+    try {
+      const res = await fetch("/api/health/");
+      const data = await res.json();
+      const grid = document.getElementById("health-grid");
+      if (!grid) return;
+      grid.innerHTML = Object.entries(data.providers || {}).map(([name, st]) =>
+        `<div class="health-item ${st.ok ? "ok" : "bad"}"><div class="name">${name}</div><div class="status">${st.ok ? "OK" : "DOWN"} · ${st.latency_ms}ms</div><div class="hint">${st.detail || ""}</div></div>`
+      ).join("");
+      document.getElementById("health-updated").textContent = new Date().toLocaleTimeString();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  document.getElementById("settings-save")?.addEventListener("click", saveSettings);
+
   render(window.__INITIAL__ || {});
+  renderSettingsForm(window.__INITIAL__?.config || {});
+  loadSettings();
   setInterval(poll, 4000);
+  setInterval(pollHealth, 30000);
+  pollHealth();
 })();

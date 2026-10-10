@@ -6,4 +6,14 @@ class TradingConfig(AppConfig):
     name = "trading"
 
     def ready(self):
-        pass
+        import sys
+
+        skip = any(
+            cmd in sys.argv
+            for cmd in ("migrate", "makemigrations", "test", "shell", "collectstatic", "bootstrap")
+        )
+        if skip:
+            return
+        from trading.services.runtime_config import validate_startup
+
+        validate_startup()

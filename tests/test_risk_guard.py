@@ -58,8 +58,10 @@ class RiskGuardTests(TestCase):
         result = guard.evaluate(intent)
         self.assertFalse(result.allowed)
 
-    @override_settings(RISK_MAX_OPEN_POSITIONS=1)
     def test_rejects_max_open_positions(self):
+        row = AppSettings.get()
+        row.config = {**(row.config or {}), "risk_max_open_positions": 1}
+        row.save()
         Position.objects.create(
             agent=self.agent,
             symbol="BAR",
