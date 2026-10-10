@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GROK BOT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/dashboard.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <div class="app" id="app">
+    <header class="top-bar">
+      <div class="brand">
+        <div class="bot-icon" aria-hidden="true"></div>
+        <div>
+          <h1>GROK BOT</h1>
+          <p class="sub" id="mode-label">TRADING MODE</p>
+        </div>
+      </div>
+      <div class="status-col">
+        <div class="live-pill" id="live-pill"><span class="dot"></span><span id="live-text">PAPER</span></div>
+        <div class="tasks"><span id="task-count">0</span> TASKS</div>
+        <button class="btn-kill" id="kill-switch-btn" type="button">KILL SWITCH</button>
+      </div>
+    </header>
+
+    <section class="metrics-grid">
+      <div class="glass card">
+        <div class="label">Balance</div>
+        <div class="value" id="balance">$0.00</div>
+        <div class="hint" id="started-at">started at $0.00</div>
+      </div>
+      <div class="glass card">
+        <div class="label">Subscription</div>
+        <div class="value" id="subscription">$0.00</div>
+        <div class="hint" id="subscription-hint">paid • next in 0 days</div>
+      </div>
+      <div class="glass card">
+        <div class="label">Total P&amp;L</div>
+        <div class="value positive" id="pnl">+$0.00</div>
+        <div class="hint" id="pnl-pct">+0% on starting stack</div>
+      </div>
+      <div class="glass card win-card">
+        <div class="win-ring-wrap">
+          <canvas id="win-chart" width="88" height="88"></canvas>
+          <div class="win-center" id="win-rate">0%</div>
+        </div>
+        <div class="win-stats">
+          <div><span class="positive" id="wins">0 wins</span></div>
+          <div><span class="negative" id="losses">0 losses</span></div>
+          <div class="muted" id="closed">0 closed</div>
+          <div class="muted" id="fees">fees $0.00</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="main-grid">
+      <div class="glass panel chart-panel">
+        <div class="panel-head">
+          <span>Balance History</span>
+          <span class="timer" id="session-timer">00:00:00 / 22H</span>
+        </div>
+        <canvas id="balance-chart"></canvas>
+      </div>
+      <div class="glass panel log-panel">
+        <div class="token-rows" id="token-statuses"></div>
+        <div class="log-scroll" id="activity-log"></div>
+      </div>
+    </section>
+
+    <section class="glass panel tables-panel">
+      <div class="tables-grid">
+        <div>
+          <h3>Open Positions</h3>
+          <table><thead><tr><th>Symbol</th><th>Agent</th><th>Entry</th><th>Size</th><th>Live</th></tr></thead><tbody id="positions-body"></tbody></table>
+        </div>
+        <div>
+          <h3>Recent Executions</h3>
+          <table><thead><tr><th>Symbol</th><th>Qty</th><th>Fill</th><th>Fee</th></tr></thead><tbody id="executions-body"></tbody></table>
+        </div>
+        <div>
+          <h3>Trade History</h3>
+          <table><thead><tr><th>Symbol</th><th>P&amp;L</th><th>Result</th></tr></thead><tbody id="trades-body"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="daily-target">
+        <div class="target-label">DAILY TARGET</div>
+        <div class="bar"><div class="bar-fill" id="daily-bar"></div></div>
+        <div class="target-pct" id="daily-pct">15%</div>
+      </div>
+      <div class="agents" id="agents-row"></div>
+    </footer>
+  </div>
+
+  <script>
+    window.__INITIAL__ = {{ initial|safe }};
+  </script>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
